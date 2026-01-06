@@ -16,7 +16,13 @@ API_HASH = os.getenv("API_HASH", "your_hash")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "your_bot_token")
 MONGO_URL = os.getenv("MONGO_DB_URI") 
 ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789")) 
-LOGGER_ID = int(os.getenv("LOGGER_ID", "-100xxxx")) 
+
+# ✅ LOGGER ID FIX: Handle both Integer and String (Username)
+RAW_LOGGER = os.getenv("LOGGER_ID", "-100xxxx")
+try:
+    LOGGER_ID = int(RAW_LOGGER)
+except:
+    LOGGER_ID = RAW_LOGGER
 
 # ─────────────────────────────
 # 🔧 SETUP
@@ -52,7 +58,7 @@ async def get_config():
     return conf
 
 # ─────────────────────────────
-# 🧠 AI & LOGIC (With Debugging)
+# 🧠 AI & LOGIC
 # ─────────────────────────────
 async def get_unique_song():
     conf = await get_config()
@@ -60,10 +66,9 @@ async def get_unique_song():
         return None, "❌ Gemini Key Missing!"
 
     genai.configure(api_key=conf["gemini_key"])
-    model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 1.0})
+    model = genai.GenerativeModel("gemini-1.5-flash", generation_config={"temperature": 1.0})
 
     try:
-        # 🎲 RANDOMIZERS (Shape of You se bachne ke liye)
         moods = ["Sad", "Romantic", "Party", "High Bass", "Lo-fi", "90s Bollywood", "Punjabi Pop", "English Rap", "Arijit Singh", "Old Classic", "Item Song"]
         alphabets = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         
@@ -82,7 +87,6 @@ async def get_unique_song():
         if not song_name:
             return None, "⚠️ AI gave empty response"
 
-        # ⚡ DUPLICATE CHECK (DB)
         exists = await videos_col.find_one({"title": {"$regex": song_name, "$options": "i"}})
         if exists:
             print(f"♻️ Skipped (Exists): {song_name}")
@@ -93,16 +97,18 @@ async def get_unique_song():
         return None, f"⚠️ AI Error: {str(e)}"
 
 # ─────────────────────────────
-# 👷 MAJDORI LOOP (With Logger)
+# 👷 MAJDORI LOOP (With Cache Refresh Fix)
 # ─────────────────────────────
 async def start_majdori():
     global MAJDORI_MODE, TODAY_SEARCH_COUNT
     
-    # Start signal
+    # ✅ FIX: Force Refresh Cache (Ye line 'Peer id invalid' error hatayegi)
     try:
+        print("🔄 Refreshing Logger Channel Cache...")
+        await app.get_chat(LOGGER_ID) 
         await app.send_message(LOGGER_ID, "**👷 ᴍᴀᴊᴅᴏʀɪ ʟᴏᴏᴘ sᴛᴀʀᴛᴇᴅ...**")
-    except:
-        pass
+    except Exception as e:
+        print(f"⚠️ Logger Error (Make sure Bot is Admin in Channel): {e}")
 
     async with aiohttp.ClientSession() as session:
         while MAJDORI_MODE:
@@ -114,15 +120,15 @@ async def start_majdori():
 
                 song, err = await get_unique_song()
                 if not song:
-                    # Agar real error hai (duplicate nahi), to Logger pe bhejo
                     if err != "DUPLICATE":
-                        await app.send_message(LOGGER_ID, f"**⚠️ ᴀɪ ɪssᴜᴇ:** {err}")
+                        try:
+                            await app.send_message(LOGGER_ID, f"**⚠️ ᴀɪ ɪssᴜᴇ:** {err}")
+                        except: pass
                         await asyncio.sleep(5)
                     else:
-                        await asyncio.sleep(1) # Duplicate pe jaldi retry
+                        await asyncio.sleep(1)
                     continue
 
-                # API Hit
                 start = time.time()
                 url = f"{conf['api_url']}/getvideo?query={song}&key={conf['api_key']}"
                 
@@ -140,16 +146,20 @@ async def start_majdori():
                             f"**sᴏᴜʀᴄᴇ:** ᴀᴜᴛᴏ\n"
                             f"**ᴛᴏᴛᴀʟ:** {TODAY_SEARCH_COUNT}"
                         )
-                        await app.send_message(LOGGER_ID, msg)
+                        try:
+                            await app.send_message(LOGGER_ID, msg)
+                        except: pass
                     else:
-                        # API Error Log
                         err_msg = data.get("error", "Unknown")
-                        await app.send_message(LOGGER_ID, f"**❌ ᴀᴘɪ ғᴀɪʟᴇᴅ:** {song}\n**Error:** {err_msg}")
+                        try:
+                            await app.send_message(LOGGER_ID, f"**❌ ᴀᴘɪ ғᴀɪʟᴇᴅ:** {song}\n**Error:** {err_msg}")
+                        except: pass
 
                 await asyncio.sleep(8)
 
             except Exception as e:
-                await app.send_message(LOGGER_ID, f"**🔥 ʟᴏᴏᴘ ᴄʀᴀsʜ:** {e}")
+                # Crash preventer
+                print(f"Loop Error: {e}")
                 await asyncio.sleep(5)
 
 # ─────────────────────────────
@@ -166,14 +176,16 @@ async def start_spam():
                 
                 async with session.get(url) as resp:
                     end = time.time()
-                    await app.send_message(LOGGER_ID, f"**sᴘᴀᴍ ʜɪᴛ**\n**sᴘᴇᴇᴅ:** {end-start:.2f}s")
+                    try:
+                        await app.send_message(LOGGER_ID, f"**sᴘᴀᴍ ʜɪᴛ**\n**sᴘᴇᴇᴅ:** {end-start:.2f}s")
+                    except: pass
                 
                 await asyncio.sleep(3)
             except:
                 pass
 
 # ─────────────────────────────
-# 🕹️ ADMIN COMMANDS (Crash Fixed)
+# 🕹️ ADMIN COMMANDS
 # ─────────────────────────────
 
 @app.on_message(filters.command("start") & filters.user(ADMIN_ID))
@@ -226,11 +238,9 @@ async def update_gemini(client, message):
     await config_col.update_one({"_id": "main_config"}, {"$set": {"gemini_key": key}}, upsert=True)
     await message.reply(f"**ɢᴇᴍɪɴɪ ᴋᴇʏ ᴜᴘᴅᴀᴛᴇᴅ**")
 
-# ✅ SAFE APLAY COMMAND
 @app.on_message(filters.command("aplay") & filters.user(ADMIN_ID))
 async def handle_aplay(client, message):
     global MAJDORI_MODE
-    # Safe check: agar argument nahi hai to 'status' maan lo
     cmd = message.command[1].lower() if len(message.command) > 1 else "status"
     
     if cmd == "on":
@@ -245,7 +255,6 @@ async def handle_aplay(client, message):
         status = "🟢 ON" if MAJDORI_MODE else "🔴 OFF"
         await message.reply(f"**ᴍᴀᴊᴅᴏʀɪ sᴛᴀᴛᴜs:** {status}\nUse `/aplay on` or `/aplay off`")
 
-# ✅ SAFE SPAM COMMAND
 @app.on_message(filters.command("spam") & filters.user(ADMIN_ID))
 async def handle_spam(client, message):
     global SPAM_MODE
@@ -262,7 +271,6 @@ async def handle_spam(client, message):
         status = "🟢 ON" if SPAM_MODE else "🔴 OFF"
         await message.reply(f"**sᴘᴀᴍ sᴛᴀᴛᴜs:** {status}\nUse `/spam on` or `/spam off`")
 
-# ✅ SAFE CHECK COMMAND
 @app.on_message(filters.command("check") & filters.user(ADMIN_ID))
 async def check_cunt(client, message):
     try:
@@ -278,12 +286,15 @@ async def check_cunt(client, message):
             start = time.time()
             url = f"{conf['api_url']}/getvideo?query=faded&key={conf['api_key']}"
             try:
-                # Timeout lagaya taki hang na ho
                 async with session.get(url, timeout=10) as resp:
                     end = time.time()
-                    await app.send_message(LOGGER_ID, f"**ᴄʜᴇᴄᴋ #{i}** | {end-start:.2f}s | {resp.status}")
+                    try:
+                        await app.send_message(LOGGER_ID, f"**ᴄʜᴇᴄᴋ #{i}** | {end-start:.2f}s | {resp.status}")
+                    except:
+                        # Ye error tab aata hai jab bot cache refresh nahi kar pata
+                        pass 
             except Exception as e:
-                await app.send_message(LOGGER_ID, f"**ᴄʜᴇᴄᴋ #{i}** | FAILED | {e}")
+                pass
             await asyncio.sleep(1)
 
 @app.on_message(filters.command("stop") & filters.user(ADMIN_ID))
@@ -305,7 +316,6 @@ async def get_stats(client, message):
     )
 
 if __name__ == "__main__":
-    # Event Loop Fix
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:

@@ -67,7 +67,7 @@ async def get_unique_song():
 
     genai.configure(api_key=conf["gemini_key"])
     # Temperature 0.8 kiya taki AI pagal na ho, bas famous chizein laye
-    model = genai.GenerativeModel("gemini-1.5-flash", generation_config={"temperature": 0.8})
+    model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.8})
 
     try:
         # 🇮🇳 DESI MOODS LIST (Sirf India ka maal)

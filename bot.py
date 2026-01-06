@@ -258,6 +258,14 @@ async def get_stats(client, message):
         f"**sᴘᴀᴍ:** {SPAM_MODE}"
     )
 
-if __name__ == "__main__":
-    app.run()
 
+if __name__ == "__main__":
+    # Event Loop Fix
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    print("🤖 Admin Bot Starting...")
+    app.run()

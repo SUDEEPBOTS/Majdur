@@ -1,6 +1,6 @@
 pyrogram
 tgcrypto
 motor
-google-generativeai
 aiohttp
 python-dotenv
+groq

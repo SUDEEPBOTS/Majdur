@@ -92,7 +92,7 @@ async def get_unique_song():
             messages=[
                 {"role": "user", "content": prompt}
             ],
-            model="llama3-8b-8192", # Super Fast & Free Model
+            model="llama-3.3-70b-versatile", # Super Fast & Free Model
             temperature=0.7,
         )
 

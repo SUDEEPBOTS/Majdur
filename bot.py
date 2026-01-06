@@ -61,7 +61,7 @@ async def get_unique_song():
     model = genai.GenerativeModel("gemini-2.5-flash")
 
     try:
-        resp = model.generate_content("Give me 1 popular Bollywood or English and hindi song name. Just name. No text.")
+        resp = model.generate_content("Give me 1 popular Bollywood or English and song name. Just name. No text.")
         song_name = resp.text.strip()
 
         # Check DB

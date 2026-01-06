@@ -58,7 +58,7 @@ async def get_config():
     return conf
 
 # ─────────────────────────────
-# 🧠 AI & LOGIC
+# 🧠 AI & LOGIC (Updated for DESI HITS)
 # ─────────────────────────────
 async def get_unique_song():
     conf = await get_config()
@@ -66,19 +66,33 @@ async def get_unique_song():
         return None, "❌ Gemini Key Missing!"
 
     genai.configure(api_key=conf["gemini_key"])
-    model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 1.0})
+    # Temperature 0.8 kiya taki AI pagal na ho, bas famous chizein laye
+    model = genai.GenerativeModel("gemini-1.5-flash", generation_config={"temperature": 0.8})
 
     try:
-        moods = ["Sad", "Romantic", "Party", "High Bass", "Lo-fi", "90s Bollywood", "Punjabi Pop", "English Rap", "Arijit Singh", "Old Classic", "Item Song"]
-        alphabets = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        # 🇮🇳 DESI MOODS LIST (Sirf India ka maal)
+        moods = [
+            "Superhit Arijit Singh", 
+            "Trending Punjabi Party", 
+            "90s Bollywood Romantic", 
+            "Best of Atif Aslam", 
+            "Instagram trending", 
+            "Yo Yo Honey Singh Party", 
+            "Latest Bollywood Blockbuster", 
+            "Old Classic Kishore Kumar", 
+            "Emraan Hashmi Hit", 
+            "Sad Heartbreak Hindi",
+            "Top 50 India"
+        ]
         
         chosen_mood = random.choice(moods)
-        chosen_char = random.choice(alphabets)
         
+        # Prompt change kiya: "Unique" hataya, "Popular" lagaya
         prompt = (
-            f"Suggest 1 unique {chosen_mood} song name that starts with letter '{chosen_char}'. "
-            f"Do not give common songs like 'Shape of You'. "
-            f"Just give the Song Name. No extra text."
+            f"Suggest 1 very popular and famous Indian {chosen_mood} song name. "
+            f"The song must be a huge hit in India. "
+            f"Do not give English songs, covers, or remixes. "
+            f"Just give the 'Song Name - Artist Name'. No extra text."
         )
 
         resp = model.generate_content(prompt)
@@ -87,6 +101,7 @@ async def get_unique_song():
         if not song_name:
             return None, "⚠️ AI gave empty response"
 
+        # ⚡ DUPLICATE CHECK (DB)
         exists = await videos_col.find_one({"title": {"$regex": song_name, "$options": "i"}})
         if exists:
             print(f"♻️ Skipped (Exists): {song_name}")

@@ -1,4 +1,5 @@
 import os
+import random  # <--- Ye line add kar imports
 import asyncio
 import logging
 import time
@@ -50,7 +51,7 @@ async def get_config():
     return conf
 
 # ─────────────────────────────
-# 🧠 AI LOGIC
+# 🧠 AI & LOGIC (Updated with Randomizer)
 # ─────────────────────────────
 async def get_unique_song():
     conf = await get_config()
@@ -58,16 +59,35 @@ async def get_unique_song():
         return None, "NO KEY"
 
     genai.configure(api_key=conf["gemini_key"])
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    # Temperature badha diya taki AI creative bane (0.9)
+    model = genai.GenerativeModel("gemini-1.5-flash", generation_config={"temperature": 1.0})
 
     try:
-        resp = model.generate_content("Give me 1 popular Bollywood or English and song name. Just name. No text.")
+        # 🎲 RANDOMIZERS
+        moods = ["Sad", "Romantic", "Party", "High Bass", "Lo-fi", "90s Bollywood", "Punjabi Pop", "English Rap", "Arijit Singh", "Old Classic", "Item Song", "Workout"]
+        alphabets = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        
+        # Har baar naya combination banega
+        chosen_mood = random.choice(moods)
+        chosen_char = random.choice(alphabets)
+        
+        # Prompt: "Ek [Mood] gana bata jo [Letter] se start ho"
+        prompt = (
+            f"Suggest 1 unique {chosen_mood} song name that starts with letter '{chosen_char}'. "
+            f"Do not give common songs like 'Shape of You'. "
+            f"Just give the Song Name. No extra text."
+        )
+
+        resp = model.generate_content(prompt)
         song_name = resp.text.strip()
 
-        # Check DB
+        # Safai (Kabhi kabhi AI "Here is your song: X" bolta hai, usko hatane ke liye)
+        song_name = song_name.replace("Here is a song:", "").replace('"', "").strip()
+
+        # ⚡ DUPLICATE CHECK (DB)
         exists = await videos_col.find_one({"title": {"$regex": song_name, "$options": "i"}})
         if exists:
-            print(f"Skipped: {song_name}")
+            print(f"♻️ Skipped (Exists): {song_name}")
             return None, "DUPLICATE"
         
         return song_name, None

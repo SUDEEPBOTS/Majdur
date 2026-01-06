@@ -66,7 +66,7 @@ async def get_unique_song():
         return None, "❌ Gemini Key Missing!"
 
     genai.configure(api_key=conf["gemini_key"])
-    model = genai.GenerativeModel("gemini-1.5-flash", generation_config={"temperature": 1.0})
+    model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 1.0})
 
     try:
         moods = ["Sad", "Romantic", "Party", "High Bass", "Lo-fi", "90s Bollywood", "Punjabi Pop", "English Rap", "Arijit Singh", "Old Classic", "Item Song"]

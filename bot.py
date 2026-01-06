@@ -5,7 +5,7 @@ import logging
 import time
 from pyrogram import Client, filters
 from motor.motor_asyncio import AsyncIOMotorClient
-import google.generativeai as genai
+from groq import Groq  # <--- Gemini hataya, Groq lagaya
 import aiohttp
 
 # ─────────────────────────────
@@ -17,7 +17,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "your_bot_token")
 MONGO_URL = os.getenv("MONGO_DB_URI") 
 ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789")) 
 
-# ✅ LOGGER ID FIX: Handle both Integer and String (Username)
+# Logger ID Logic
 RAW_LOGGER = os.getenv("LOGGER_ID", "-100xxxx")
 try:
     LOGGER_ID = int(RAW_LOGGER)
@@ -51,79 +51,76 @@ async def get_config():
             "_id": "main_config",
             "api_url": "https://tera-api.herokuapp.com",
             "api_key": "default_key",
-            "gemini_key": "default_key"
+            "groq_key": "default_key" # <--- Ab Groq key save hogi
         }
         await config_col.insert_one(new_conf)
         return new_conf
     return conf
 
 # ─────────────────────────────
-# 🧠 AI & LOGIC (Updated for DESI HITS)
+# 🧠 AI & LOGIC (GROQ Llama-3 - Super Fast)
 # ─────────────────────────────
 async def get_unique_song():
     conf = await get_config()
-    if not conf or not conf.get("gemini_key") or conf.get("gemini_key") == "default_key":
-        return None, "❌ Gemini Key Missing!"
-
-    genai.configure(api_key=conf["gemini_key"])
-    # Temperature 0.8 kiya taki AI pagal na ho, bas famous chizein laye
-    model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.8})
+    # Check for Groq Key
+    if not conf or not conf.get("groq_key") or conf.get("groq_key") == "default_key":
+        return None, "❌ Groq Key Missing! Use /setgroq"
 
     try:
-        # 🇮🇳 DESI MOODS LIST (Sirf India ka maal)
+        # Groq Client Setup
+        client = Groq(api_key=conf["groq_key"])
+
+        # 🇮🇳 DESI MOODS (Popular Only)
         moods = [
-            "Superhit Arijit Singh", 
-            "Trending Punjabi Party", 
-            "90s Bollywood Romantic", 
-            "Best of Atif Aslam", 
-            "Instagram trending", 
-            "Yo Yo Honey Singh Party", 
-            "Latest Bollywood Blockbuster", 
-            "Old Classic Kishore Kumar", 
-            "Emraan Hashmi Hit", 
-            "Sad Heartbreak Hindi",
-            "Top 50 India"
+            "Superhit Arijit Singh", "Trending Punjabi Party", "90s Bollywood Romantic", 
+            "Best of Atif Aslam", "Sidhu Moose Wala", "Yo Yo Honey Singh", 
+            "Latest Bollywood Blockbuster", "Old Classic Kishore Kumar", 
+            "Emraan Hashmi Hit", "Badshah Party", "Top 50 India", "Neha Kakkar Hit"
         ]
-        
         chosen_mood = random.choice(moods)
-        
-        # Prompt change kiya: "Unique" hataya, "Popular" lagaya
+
+        # Llama-3 Prompt (Strict)
         prompt = (
-            f"Suggest 1 very popular and famous Indian {chosen_mood} song name. "
-            f"The song must be a huge hit in India. "
-            f"Do not give English songs, covers, or remixes. "
-            f"Just give the 'Song Name - Artist Name'. No extra text."
+            f"Suggest 1 very popular Indian {chosen_mood} song.\n"
+            f"Rule 1: Only give the 'Song Name - Artist Name'.\n"
+            f"Rule 2: Do NOT give English songs, remixes, or book trailers.\n"
+            f"Rule 3: Do NOT write 'Here is a song' or any intro.\n"
+            f"Example Output: Kesariya - Arijit Singh"
         )
 
-        resp = model.generate_content(prompt)
-        song_name = resp.text.strip().replace("Here is a song:", "").replace('"', "").strip()
-        
-        if not song_name:
-            return None, "⚠️ AI gave empty response"
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            model="llama3-8b-8192", # Super Fast & Free Model
+            temperature=0.7,
+        )
 
-        # ⚡ DUPLICATE CHECK (DB)
+        song_name = chat_completion.choices[0].message.content.strip().replace('"', "")
+
+        # ⚡ DUPLICATE CHECK
         exists = await videos_col.find_one({"title": {"$regex": song_name, "$options": "i"}})
         if exists:
             print(f"♻️ Skipped (Exists): {song_name}")
             return None, "DUPLICATE"
         
         return song_name, None
+
     except Exception as e:
-        return None, f"⚠️ AI Error: {str(e)}"
+        return None, f"⚠️ Groq Error: {str(e)}"
 
 # ─────────────────────────────
-# 👷 MAJDORI LOOP (With Cache Refresh Fix)
+# 👷 MAJDORI LOOP
 # ─────────────────────────────
 async def start_majdori():
     global MAJDORI_MODE, TODAY_SEARCH_COUNT
     
-    # ✅ FIX: Force Refresh Cache (Ye line 'Peer id invalid' error hatayegi)
     try:
-        print("🔄 Refreshing Logger Channel Cache...")
-        await app.get_chat(LOGGER_ID) 
-        await app.send_message(LOGGER_ID, "**👷 ᴍᴀᴊᴅᴏʀɪ ʟᴏᴏᴘ sᴛᴀʀᴛᴇᴅ...**")
-    except Exception as e:
-        print(f"⚠️ Logger Error (Make sure Bot is Admin in Channel): {e}")
+        # Cache Refresh for Logger (Ye error fix karega)
+        await app.get_chat(LOGGER_ID)
+        await app.send_message(LOGGER_ID, "**👷 ᴍᴀᴊᴅᴏʀɪ (ɢʀᴏǫ) sᴛᴀʀᴛᴇᴅ...**")
+    except:
+        pass
 
     async with aiohttp.ClientSession() as session:
         while MAJDORI_MODE:
@@ -137,13 +134,14 @@ async def start_majdori():
                 if not song:
                     if err != "DUPLICATE":
                         try:
-                            await app.send_message(LOGGER_ID, f"**⚠️ ᴀɪ ɪssᴜᴇ:** {err}")
+                            await app.send_message(LOGGER_ID, f"**⚠️ AI Error:** {err}")
                         except: pass
                         await asyncio.sleep(5)
                     else:
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(0.5) # Groq fast hai, jaldi retry karo
                     continue
 
+                # API HIT
                 start = time.time()
                 url = f"{conf['api_url']}/getvideo?query={song}&key={conf['api_key']}"
                 
@@ -155,11 +153,10 @@ async def start_majdori():
                     if data.get("status") == 200:
                         TODAY_SEARCH_COUNT += 1
                         msg = (
-                            f"**ᴍᴀᴊᴅᴏʀɪ sᴜᴄᴄᴇss**\n\n"
-                            f"**ᴛɪᴛʟᴇ:** {data['title']}\n"
-                            f"**ᴛɪᴍᴇ:** {resp_time}\n"
-                            f"**sᴏᴜʀᴄᴇ:** ᴀᴜᴛᴏ\n"
-                            f"**ᴛᴏᴛᴀʟ:** {TODAY_SEARCH_COUNT}"
+                            f"**✅ ᴍᴀᴊᴅᴏʀɪ sᴜᴄᴄᴇss**\n\n"
+                            f"**🎵:** {data['title']}\n"
+                            f"**🚀:** {resp_time} | ⚡ Groq\n"
+                            f"**🔢:** {TODAY_SEARCH_COUNT}"
                         )
                         try:
                             await app.send_message(LOGGER_ID, msg)
@@ -167,13 +164,12 @@ async def start_majdori():
                     else:
                         err_msg = data.get("error", "Unknown")
                         try:
-                            await app.send_message(LOGGER_ID, f"**❌ ᴀᴘɪ ғᴀɪʟᴇᴅ:** {song}\n**Error:** {err_msg}")
+                            await app.send_message(LOGGER_ID, f"**❌ API Fail:** {song}\n{err_msg}")
                         except: pass
 
-                await asyncio.sleep(8)
+                await asyncio.sleep(5) # Groq fast hai, par API pe load kam rakhne ke liye 5s break
 
             except Exception as e:
-                # Crash preventer
                 print(f"Loop Error: {e}")
                 await asyncio.sleep(5)
 
@@ -188,16 +184,13 @@ async def start_spam():
                 conf = await get_config()
                 start = time.time()
                 url = f"{conf['api_url']}/getvideo?query=Believer&key={conf['api_key']}"
-                
                 async with session.get(url) as resp:
                     end = time.time()
                     try:
-                        await app.send_message(LOGGER_ID, f"**sᴘᴀᴍ ʜɪᴛ**\n**sᴘᴇᴇᴅ:** {end-start:.2f}s")
+                        await app.send_message(LOGGER_ID, f"**⚡ SPAM HIT:** {end-start:.2f}s")
                     except: pass
-                
                 await asyncio.sleep(3)
-            except:
-                pass
+            except: pass
 
 # ─────────────────────────────
 # 🕹️ ADMIN COMMANDS
@@ -206,95 +199,76 @@ async def start_spam():
 @app.on_message(filters.command("start") & filters.user(ADMIN_ID))
 async def start(client, message):
     await message.reply(
-        "**ᴀᴅᴍɪɴ ᴘᴀɴᴇʟ ʀᴇᴀᴅʏ**\n\n"
-        "/config - sᴇᴛ ᴋᴇʏs\n"
-        "/aplay - ᴀᴜᴛᴏ ᴀᴅᴅ\n"
-        "/spam - sᴛʀᴇss ᴛᴇsᴛ\n"
-        "/check - ʜɪᴛ ᴄᴏᴜɴᴛ\n"
-        "/stats - ᴅʙ sᴛᴀᴛs\n"
-        "/stop - ᴇᴍᴇʀɢᴇɴᴄʏ"
+        "**⚡ GROQ ADMIN PANEL**\n\n"
+        "/config - View Config\n"
+        "/setgroq - Set Groq Key (New)\n"
+        "/aplay on/off - Majdori\n"
+        "/check 5 - Test API"
     )
 
 @app.on_message(filters.command("config") & filters.user(ADMIN_ID))
 async def set_configuration(client, message):
-    try:
-        conf = await get_config()
-        await message.reply(
-            f"**ᴄᴜʀʀᴇɴᴛ ᴄᴏɴғɪɢ**\n\n"
-            f"**ᴜʀʟ:** `{conf.get('api_url')}`\n"
-            f"**ᴋᴇʏ:** `{conf.get('api_key')}`\n"
-            f"**ɢᴇᴍɪɴɪ:** `{conf.get('gemini_key')}`\n\n"
-            "**ᴜᴘᴅᴀᴛᴇ:**\n"
-            "`/seturl`\n"
-            "`/setkey`\n"
-            "`/setgemini`"
-        )
-    except Exception as e:
-        await message.reply(str(e))
+    conf = await get_config()
+    await message.reply(f"**API Key:** `{conf.get('api_key')}`\n**Groq Key:** `{conf.get('groq_key')}`")
 
 @app.on_message(filters.command("seturl") & filters.user(ADMIN_ID))
 async def update_url(client, message):
     if len(message.command) < 2: return await message.reply("Give URL")
     url = message.text.split(None, 1)[1]
     await config_col.update_one({"_id": "main_config"}, {"$set": {"api_url": url}}, upsert=True)
-    await message.reply(f"**ᴜʀʟ ᴜᴘᴅᴀᴛᴇᴅ:**\n`{url}`")
+    await message.reply(f"**URL Updated**")
 
 @app.on_message(filters.command("setkey") & filters.user(ADMIN_ID))
 async def update_key(client, message):
     if len(message.command) < 2: return await message.reply("Give Key")
     key = message.text.split(None, 1)[1]
     await config_col.update_one({"_id": "main_config"}, {"$set": {"api_key": key}}, upsert=True)
-    await message.reply(f"**ᴀᴘɪ ᴋᴇʏ ᴜᴘᴅᴀᴛᴇᴅ:**\n`{key}`")
+    await message.reply(f"**API Key Updated**")
 
-@app.on_message(filters.command("setgemini") & filters.user(ADMIN_ID))
-async def update_gemini(client, message):
-    if len(message.command) < 2: return await message.reply("Give Key")
+# ✅ NEW COMMAND FOR GROQ
+@app.on_message(filters.command("setgroq") & filters.user(ADMIN_ID))
+async def update_groq(client, message):
+    if len(message.command) < 2: return await message.reply("Give Groq Key `gsk_...`")
     key = message.text.split(None, 1)[1]
-    await config_col.update_one({"_id": "main_config"}, {"$set": {"gemini_key": key}}, upsert=True)
-    await message.reply(f"**ɢᴇᴍɪɴɪ ᴋᴇʏ ᴜᴘᴅᴀᴛᴇᴅ**")
+    await config_col.update_one({"_id": "main_config"}, {"$set": {"groq_key": key}}, upsert=True)
+    await message.reply(f"**✅ Groq Key Updated!**\nAb Majdori fast hogi.")
 
 @app.on_message(filters.command("aplay") & filters.user(ADMIN_ID))
 async def handle_aplay(client, message):
     global MAJDORI_MODE
     cmd = message.command[1].lower() if len(message.command) > 1 else "status"
-    
     if cmd == "on":
-        if MAJDORI_MODE: return await message.reply("**ᴀʟʀᴇᴀᴅʏ ʀᴜɴɴɪɴɢ**")
+        if MAJDORI_MODE: return await message.reply("Already ON")
         MAJDORI_MODE = True
         asyncio.create_task(start_majdori())
-        await message.reply("**ᴍᴀᴊᴅᴏʀɪ sᴛᴀʀᴛᴇᴅ**\n(Check Logger for updates)")
+        await message.reply("🚀 **Groq Majdori Started!**")
     elif cmd == "off":
         MAJDORI_MODE = False
-        await message.reply("**ᴍᴀᴊᴅᴏʀɪ sᴛᴏᴘᴘᴇᴅ**")
+        await message.reply("🛑 Stopped")
     else:
-        status = "🟢 ON" if MAJDORI_MODE else "🔴 OFF"
-        await message.reply(f"**ᴍᴀᴊᴅᴏʀɪ sᴛᴀᴛᴜs:** {status}\nUse `/aplay on` or `/aplay off`")
+        await message.reply(f"Status: {MAJDORI_MODE}")
 
 @app.on_message(filters.command("spam") & filters.user(ADMIN_ID))
 async def handle_spam(client, message):
     global SPAM_MODE
     cmd = message.command[1].lower() if len(message.command) > 1 else "status"
-
     if cmd == "on":
         SPAM_MODE = True
         asyncio.create_task(start_spam())
-        await message.reply("**sᴘᴀᴍ ᴀᴛᴛᴀᴄᴋ sᴛᴀʀᴛᴇᴅ**")
+        await message.reply("⚔️ Spam Started")
     elif cmd == "off":
         SPAM_MODE = False
-        await message.reply("**sᴘᴀᴍ sᴛᴏᴘᴘᴇᴅ**")
-    else:
-        status = "🟢 ON" if SPAM_MODE else "🔴 OFF"
-        await message.reply(f"**sᴘᴀᴍ sᴛᴀᴛᴜs:** {status}\nUse `/spam on` or `/spam off`")
+        await message.reply("🛑 Spam Stopped")
 
 @app.on_message(filters.command("check") & filters.user(ADMIN_ID))
 async def check_cunt(client, message):
     try:
         count = int(message.command[1])
     except:
-        return await message.reply("`usage: /check 5`")
+        return await message.reply("/check 5")
     
     conf = await get_config()
-    await message.reply(f"**ʜɪᴛᴛɪɴɢ {count} ᴛɪᴍᴇs...**")
+    await message.reply(f"Hitting {count} times...")
     
     async with aiohttp.ClientSession() as session:
         for i in range(1, count+1):
@@ -303,32 +277,10 @@ async def check_cunt(client, message):
             try:
                 async with session.get(url, timeout=10) as resp:
                     end = time.time()
-                    try:
-                        await app.send_message(LOGGER_ID, f"**ᴄʜᴇᴄᴋ #{i}** | {end-start:.2f}s | {resp.status}")
-                    except:
-                        # Ye error tab aata hai jab bot cache refresh nahi kar pata
-                        pass 
-            except Exception as e:
-                pass
+                    try: await app.send_message(LOGGER_ID, f"**#{i}** | {end-start:.2f}s | {resp.status}")
+                    except: pass
+            except: pass
             await asyncio.sleep(1)
-
-@app.on_message(filters.command("stop") & filters.user(ADMIN_ID))
-async def stop_all(client, message):
-    global MAJDORI_MODE, SPAM_MODE
-    MAJDORI_MODE = False
-    SPAM_MODE = False
-    await message.reply("**ᴇᴍᴇʀɢᴇɴᴄʏ sᴛᴏᴘ ᴇxᴇᴄᴜᴛᴇᴅ**")
-
-@app.on_message(filters.command("stats") & filters.user(ADMIN_ID))
-async def get_stats(client, message):
-    total_db = await videos_col.count_documents({})
-    await message.reply(
-        f"**ʙᴏᴛ sᴛᴀᴛs**\n\n"
-        f"**ᴅʙ sᴏɴɢs:** {total_db}\n"
-        f"**sᴇssɪᴏɴ:** {TODAY_SEARCH_COUNT}\n"
-        f"**ᴍᴀᴊᴅᴏʀɪ:** {MAJDORI_MODE}\n"
-        f"**sᴘᴀᴍ:** {SPAM_MODE}"
-    )
 
 if __name__ == "__main__":
     try:
@@ -336,6 +288,5 @@ if __name__ == "__main__":
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-
-    print("🤖 Admin Bot Starting...")
+    print("🤖 Groq Bot Starting...")
     app.run()

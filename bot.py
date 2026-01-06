@@ -1,5 +1,5 @@
 import os
-import random  # <--- Ye line add kar imports
+import random
 import asyncio
 import logging
 import time
@@ -41,37 +41,35 @@ TODAY_SEARCH_COUNT = 0
 async def get_config():
     conf = await config_col.find_one({"_id": "main_config"})
     if not conf:
-        await config_col.insert_one({
+        new_conf = {
             "_id": "main_config",
             "api_url": "https://tera-api.herokuapp.com",
             "api_key": "default_key",
             "gemini_key": "default_key"
-        })
-        return None
+        }
+        await config_col.insert_one(new_conf)
+        return new_conf
     return conf
 
 # ─────────────────────────────
-# 🧠 AI & LOGIC (Updated with Randomizer)
+# 🧠 AI & LOGIC (With Debugging)
 # ─────────────────────────────
 async def get_unique_song():
     conf = await get_config()
-    if not conf or not conf.get("gemini_key"):
-        return None, "NO KEY"
+    if not conf or not conf.get("gemini_key") or conf.get("gemini_key") == "default_key":
+        return None, "❌ Gemini Key Missing!"
 
     genai.configure(api_key=conf["gemini_key"])
-    # Temperature badha diya taki AI creative bane (0.9)
     model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 1.0})
 
     try:
-        # 🎲 RANDOMIZERS
-        moods = ["Sad", "Romantic", "Party", "High Bass", "Lo-fi", "90s Bollywood", "Punjabi Pop", "English Rap", "Arijit Singh", "Old Classic", "Item Song", "Workout"]
+        # 🎲 RANDOMIZERS (Shape of You se bachne ke liye)
+        moods = ["Sad", "Romantic", "Party", "High Bass", "Lo-fi", "90s Bollywood", "Punjabi Pop", "English Rap", "Arijit Singh", "Old Classic", "Item Song"]
         alphabets = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         
-        # Har baar naya combination banega
         chosen_mood = random.choice(moods)
         chosen_char = random.choice(alphabets)
         
-        # Prompt: "Ek [Mood] gana bata jo [Letter] se start ho"
         prompt = (
             f"Suggest 1 unique {chosen_mood} song name that starts with letter '{chosen_char}'. "
             f"Do not give common songs like 'Shape of You'. "
@@ -79,10 +77,10 @@ async def get_unique_song():
         )
 
         resp = model.generate_content(prompt)
-        song_name = resp.text.strip()
-
-        # Safai (Kabhi kabhi AI "Here is your song: X" bolta hai, usko hatane ke liye)
-        song_name = song_name.replace("Here is a song:", "").replace('"', "").strip()
+        song_name = resp.text.strip().replace("Here is a song:", "").replace('"', "").strip()
+        
+        if not song_name:
+            return None, "⚠️ AI gave empty response"
 
         # ⚡ DUPLICATE CHECK (DB)
         exists = await videos_col.find_one({"title": {"$regex": song_name, "$options": "i"}})
@@ -92,26 +90,39 @@ async def get_unique_song():
         
         return song_name, None
     except Exception as e:
-        return None, str(e)
+        return None, f"⚠️ AI Error: {str(e)}"
 
 # ─────────────────────────────
-# 👷 MAJDORI LOOP
+# 👷 MAJDORI LOOP (With Logger)
 # ─────────────────────────────
 async def start_majdori():
     global MAJDORI_MODE, TODAY_SEARCH_COUNT
+    
+    # Start signal
+    try:
+        await app.send_message(LOGGER_ID, "**👷 ᴍᴀᴊᴅᴏʀɪ ʟᴏᴏᴘ sᴛᴀʀᴛᴇᴅ...**")
+    except:
+        pass
+
     async with aiohttp.ClientSession() as session:
         while MAJDORI_MODE:
             try:
                 conf = await get_config()
                 if not conf:
-                    await asyncio.sleep(10)
+                    await asyncio.sleep(5)
                     continue
 
                 song, err = await get_unique_song()
                 if not song:
-                    await asyncio.sleep(2)
+                    # Agar real error hai (duplicate nahi), to Logger pe bhejo
+                    if err != "DUPLICATE":
+                        await app.send_message(LOGGER_ID, f"**⚠️ ᴀɪ ɪssᴜᴇ:** {err}")
+                        await asyncio.sleep(5)
+                    else:
+                        await asyncio.sleep(1) # Duplicate pe jaldi retry
                     continue
 
+                # API Hit
                 start = time.time()
                 url = f"{conf['api_url']}/getvideo?query={song}&key={conf['api_key']}"
                 
@@ -131,12 +142,14 @@ async def start_majdori():
                         )
                         await app.send_message(LOGGER_ID, msg)
                     else:
-                        print(f"Failed: {song}")
+                        # API Error Log
+                        err_msg = data.get("error", "Unknown")
+                        await app.send_message(LOGGER_ID, f"**❌ ᴀᴘɪ ғᴀɪʟᴇᴅ:** {song}\n**Error:** {err_msg}")
 
                 await asyncio.sleep(8)
 
             except Exception as e:
-                print(f"Error: {e}")
+                await app.send_message(LOGGER_ID, f"**🔥 ʟᴏᴏᴘ ᴄʀᴀsʜ:** {e}")
                 await asyncio.sleep(5)
 
 # ─────────────────────────────
@@ -160,7 +173,7 @@ async def start_spam():
                 pass
 
 # ─────────────────────────────
-# 🕹️ ADMIN COMMANDS
+# 🕹️ ADMIN COMMANDS (Crash Fixed)
 # ─────────────────────────────
 
 @app.on_message(filters.command("start") & filters.user(ADMIN_ID))
@@ -178,69 +191,78 @@ async def start(client, message):
 @app.on_message(filters.command("config") & filters.user(ADMIN_ID))
 async def set_configuration(client, message):
     try:
-        args = message.command
-        if len(args) < 2:
-            conf = await get_config()
-            return await message.reply(
-                f"**ᴄᴜʀʀᴇɴᴛ ᴄᴏɴғɪɢ**\n\n"
-                f"**ᴜʀʟ:** `{conf.get('api_url')}`\n"
-                f"**ᴋᴇʏ:** `{conf.get('api_key')}`\n"
-                f"**ɢᴇᴍɪɴɪ:** `{conf.get('gemini_key')}`\n\n"
-                "**ᴜᴘᴅᴀᴛᴇ:**\n"
-                "`/seturl`\n"
-                "`/setkey`\n"
-                "`/setgemini`"
-            )
+        conf = await get_config()
+        await message.reply(
+            f"**ᴄᴜʀʀᴇɴᴛ ᴄᴏɴғɪɢ**\n\n"
+            f"**ᴜʀʟ:** `{conf.get('api_url')}`\n"
+            f"**ᴋᴇʏ:** `{conf.get('api_key')}`\n"
+            f"**ɢᴇᴍɪɴɪ:** `{conf.get('gemini_key')}`\n\n"
+            "**ᴜᴘᴅᴀᴛᴇ:**\n"
+            "`/seturl`\n"
+            "`/setkey`\n"
+            "`/setgemini`"
+        )
     except Exception as e:
         await message.reply(str(e))
 
 @app.on_message(filters.command("seturl") & filters.user(ADMIN_ID))
 async def update_url(client, message):
-    if len(message.command) < 2: return
+    if len(message.command) < 2: return await message.reply("Give URL")
     url = message.text.split(None, 1)[1]
     await config_col.update_one({"_id": "main_config"}, {"$set": {"api_url": url}}, upsert=True)
     await message.reply(f"**ᴜʀʟ ᴜᴘᴅᴀᴛᴇᴅ:**\n`{url}`")
 
 @app.on_message(filters.command("setkey") & filters.user(ADMIN_ID))
 async def update_key(client, message):
-    if len(message.command) < 2: return
+    if len(message.command) < 2: return await message.reply("Give Key")
     key = message.text.split(None, 1)[1]
     await config_col.update_one({"_id": "main_config"}, {"$set": {"api_key": key}}, upsert=True)
     await message.reply(f"**ᴀᴘɪ ᴋᴇʏ ᴜᴘᴅᴀᴛᴇᴅ:**\n`{key}`")
 
 @app.on_message(filters.command("setgemini") & filters.user(ADMIN_ID))
 async def update_gemini(client, message):
-    if len(message.command) < 2: return
+    if len(message.command) < 2: return await message.reply("Give Key")
     key = message.text.split(None, 1)[1]
     await config_col.update_one({"_id": "main_config"}, {"$set": {"gemini_key": key}}, upsert=True)
     await message.reply(f"**ɢᴇᴍɪɴɪ ᴋᴇʏ ᴜᴘᴅᴀᴛᴇᴅ**")
 
+# ✅ SAFE APLAY COMMAND
 @app.on_message(filters.command("aplay") & filters.user(ADMIN_ID))
 async def handle_aplay(client, message):
     global MAJDORI_MODE
+    # Safe check: agar argument nahi hai to 'status' maan lo
     cmd = message.command[1].lower() if len(message.command) > 1 else "status"
     
     if cmd == "on":
         if MAJDORI_MODE: return await message.reply("**ᴀʟʀᴇᴀᴅʏ ʀᴜɴɴɪɴɢ**")
         MAJDORI_MODE = True
         asyncio.create_task(start_majdori())
-        await message.reply("**ᴍᴀᴊᴅᴏʀɪ sᴛᴀʀᴛᴇᴅ**")
+        await message.reply("**ᴍᴀᴊᴅᴏʀɪ sᴛᴀʀᴛᴇᴅ**\n(Check Logger for updates)")
     elif cmd == "off":
         MAJDORI_MODE = False
         await message.reply("**ᴍᴀᴊᴅᴏʀɪ sᴛᴏᴘᴘᴇᴅ**")
+    else:
+        status = "🟢 ON" if MAJDORI_MODE else "🔴 OFF"
+        await message.reply(f"**ᴍᴀᴊᴅᴏʀɪ sᴛᴀᴛᴜs:** {status}\nUse `/aplay on` or `/aplay off`")
 
+# ✅ SAFE SPAM COMMAND
 @app.on_message(filters.command("spam") & filters.user(ADMIN_ID))
 async def handle_spam(client, message):
     global SPAM_MODE
-    cmd = message.command[1].lower()
+    cmd = message.command[1].lower() if len(message.command) > 1 else "status"
+
     if cmd == "on":
         SPAM_MODE = True
         asyncio.create_task(start_spam())
         await message.reply("**sᴘᴀᴍ ᴀᴛᴛᴀᴄᴋ sᴛᴀʀᴛᴇᴅ**")
-    else:
+    elif cmd == "off":
         SPAM_MODE = False
         await message.reply("**sᴘᴀᴍ sᴛᴏᴘᴘᴇᴅ**")
+    else:
+        status = "🟢 ON" if SPAM_MODE else "🔴 OFF"
+        await message.reply(f"**sᴘᴀᴍ sᴛᴀᴛᴜs:** {status}\nUse `/spam on` or `/spam off`")
 
+# ✅ SAFE CHECK COMMAND
 @app.on_message(filters.command("check") & filters.user(ADMIN_ID))
 async def check_cunt(client, message):
     try:
@@ -255,9 +277,13 @@ async def check_cunt(client, message):
         for i in range(1, count+1):
             start = time.time()
             url = f"{conf['api_url']}/getvideo?query=faded&key={conf['api_key']}"
-            async with session.get(url) as resp:
-                end = time.time()
-                await app.send_message(LOGGER_ID, f"**ᴄʜᴇᴄᴋ #{i}** | {end-start:.2f}s")
+            try:
+                # Timeout lagaya taki hang na ho
+                async with session.get(url, timeout=10) as resp:
+                    end = time.time()
+                    await app.send_message(LOGGER_ID, f"**ᴄʜᴇᴄᴋ #{i}** | {end-start:.2f}s | {resp.status}")
+            except Exception as e:
+                await app.send_message(LOGGER_ID, f"**ᴄʜᴇᴄᴋ #{i}** | FAILED | {e}")
             await asyncio.sleep(1)
 
 @app.on_message(filters.command("stop") & filters.user(ADMIN_ID))
@@ -277,7 +303,6 @@ async def get_stats(client, message):
         f"**ᴍᴀᴊᴅᴏʀɪ:** {MAJDORI_MODE}\n"
         f"**sᴘᴀᴍ:** {SPAM_MODE}"
     )
-
 
 if __name__ == "__main__":
     # Event Loop Fix

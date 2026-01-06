@@ -60,7 +60,7 @@ async def get_unique_song():
 
     genai.configure(api_key=conf["gemini_key"])
     # Temperature badha diya taki AI creative bane (0.9)
-    model = genai.GenerativeModel("gemini-1.5-flash", generation_config={"temperature": 1.0})
+    model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 1.0})
 
     try:
         # 🎲 RANDOMIZERS
